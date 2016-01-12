@@ -1,0 +1,273 @@
+<?php
+
+/*
+ * @file
+ * Provides callbacks for notifications
+ */
+
+/**
+ * Implementation of hook_action_info().
+ */
+function notifications_action_info() {
+  return array(
+    'notifications_comment_email_action' => array(
+      'description' => t('Comment email notification'),
+      'type' => 'comment',
+      'configurable' => FALSE,
+      'hooks' => array(
+        'comment' => array('view', 'insert', 'update', 'delete'),
+        ),
+      ),
+  );
+}
+
+/**
+ * Implementation of a Drupal action.
+ * Sends email to teacher/host/guest when a user leaves a comment.
+ */
+function notifications_comment_email_action(&$object, $context = array()) {
+  global $user;
+
+  $comment = $context['comment'];
+  $node = node_load($object->nid);
+  $object_type = $node->type;
+  $comment_uid = $object->uid;
+  $recipient = '';
+  $language = user_preferred_language($user);
+
+  //add comment and node to params for email body
+  $params = array(
+    'object'  => $object,
+    'node'    => $node,
+  );
+  //Set type to user to get back an user object
+  $type = 'user';
+
+  //Switch based on node types - currently only articles and videos
+  switch ($object_type) {
+    case 'article':
+      //Get author tid from node
+      $article_author_tid = $node->field_article_author_tid[0]['value'];
+      $article_author = notifications_get_user_info($article_author_tid, $type);
+      $article_author_email = $article_author->mail;
+
+      if ($comment_uid != $article_author->uid && $article_author_email != NULL) {
+        $recipient = $article_author_email;
+      }
+
+      if (!empty($recipient)) {
+        if (drupal_mail('notifications', 'action_notification_send_email', $recipient, $language, $params)) {
+          watchdog('action', 'Sent email to %recipient', array('%recipient' => $recipient));
+        }
+        else {
+          watchdog('error', 'Unable to send email to %recipient', array('%recipient' => $recipient));
+        }
+      }
+      break;
+
+    case 'product_video':
+      //Get the teacher/host/guest tid from the node
+      $yoga_teacher_tid = $node->field_facet_yoga_teacher[0]['value'];
+      $fitness_teacher_tid = $node->field_facet_fitness_teacher[0]['value'];
+      $interview_host_tid = $node->field_facet_interview_host[0]['value'];
+      $interview_guest_tid = $node->field_facet_interview_guest[0]['value'];
+
+      //if both yoga and fitness teacher are populated
+      if ($yoga_teacher_tid != NULL && $fitness_teacher_tid != NULL) {
+        //yoga and fitness teacher are same tid - only populate one email
+        if ($yoga_teacher_tid == $fitness_teacher_tid) {
+          $yoga_teacher = notifications_get_user_info($yoga_teacher_tid, $type);
+          $yoga_teacher_email = $yoga_teacher->mail;
+        }
+        else {
+          $yoga_teacher = notifications_get_user_info($yoga_teacher_tid, $type);
+          $yoga_teacher_email = $yoga_teacher->mail;
+
+          $fitness_teacher = notifications_get_user_info($fitness_teacher_tid, $type);
+          $fitness_teacher_email = $fitness_teacher->mail;
+        }
+      }
+      //only yoga teacher is populated
+      else if ($yoga_teacher_tid != NULL && $fitness_teacher_tid == NULL) {
+        $yoga_teacher = notifications_get_user_info($yoga_teacher_tid, $type);
+        $yoga_teacher_email = $yoga_teacher->mail;
+      }
+      //only fitness teacher is populated
+      else if ($yoga_teacher_tid == NULL && $fitness_teacher_tid != NULL) {
+        $fitness_teacher = notifications_get_user_info($fitness_teacher_tid, $type);
+        $fitness_teacher_email = $fitness_teacher->mail;
+      }
+      //if both host and guest are populated
+      if ($interview_host_tid != NULL && $interview_guest_tid != NULL) {
+        //host and guest are same tid - only populate one email
+        if ($interview_host_tid == $interview_guest_tid) {
+          $interview_host = notifications_get_user_info($interview_host_tid, $type);
+          $interview_host_email = $interview_host->mail;
+        }
+        else {
+          $interview_host = notifications_get_user_info($interview_host_tid, $type);
+          $interview_host_email = $interview_host->mail;
+
+          $interview_guest = notifications_get_user_info($interview_guest_tid, $type);
+          $interview_guest_email = $interview_guest->mail;
+         }
+      }
+      //only host is populated
+      else if ($interview_host_tid != NULL && $interview_guest_tid == NULL) {
+        $interview_host = notifications_get_user_info($interview_host_tid, $type);
+        $interview_host_email = $interview_host->mail;
+      }
+      //only guest is populated
+      else if ($interview_host_tid == NULL && $interview_guest_tid != NULL) {
+        $interview_guest = notifications_get_user_info($interview_guest_tid, $type);
+        $interview_guest_email = $interview_guest->mail;
+      }
+
+      //populate comma separated email list
+      if ($comment_uid != $yoga_teacher->uid && $yoga_teacher_email != NULL) {
+        $recipient = $yoga_teacher_email;
+      }
+      if ($comment_uid != $fitness_teacher->uid && $fitness_teacher_email != NULL) {
+        if (empty($recipient)) {
+          $recipient = $fitness_teacher_email;
+        }
+        else {
+          $recipient .= ',' . $fitness_teacher_email;
+        }
+      }
+      if ($comment_uid != $interview_host->uid && $interview_host_email != NULL) {
+        if(empty($recipient)) {
+          $recipient = $interview_host_email;
+        }
+        else {
+          $recipient .= ',' . $interview_host_email;
+        }
+      }
+      if ($comment_uid != $interview_guest->uid && $interview_guest_email != NULL) {
+        if (empty($recipient)) {
+          $recipient = $interview_guest_email;
+        }
+        else {
+          $recipient .= ',' . $interview_guest_email;
+        }
+      }
+
+      if (!empty($recipient)) {
+        if (drupal_mail('notifications', 'action_notification_send_email', $recipient, $language, $params)) {
+          watchdog('action', 'Sent email to %recipient', array('%recipient' => $recipient));
+        }
+        else {
+          watchdog('error', 'Unable to send email to %recipient', array('%recipient' => $recipient));
+        }
+      }
+      break;
+
+    //Commenting out type == bio until it is needed
+    case 'bio':
+      //Get bio tid from node
+      $bio_tid = $node->field_facet_person[0]['value'];
+      $bio = notifications_get_user_info($bio_tid, $type);
+      $bio_email = $bio->mail;
+
+      if ($comment_uid != $bio->uid && $bio_email != NULL) {
+        $recipient = $bio_email;
+      }
+
+      if (!empty($recipient)) {
+        if (drupal_mail('notifications', 'action_notification_send_email', $recipient, $language, $params)) {
+          watchdog('action', 'Sent email to %recipient', array('%recipient' => $recipient));
+        }
+        else {
+          watchdog('error', 'Unable to send email to %recipient', array('%recipient' => $recipient));
+        }
+      }
+      break;
+
+    //if any other node type - don't send an email
+    default:
+      break;
+  }
+
+}
+
+/**
+ * Get user object from user's tid and bio node id
+ * Switch by type to return different pieces of user data
+ * @param $tid - user's term id
+ * @param $type - 'uid', 'user' (user object), 'first_name'
+ *
+ * @return different based on type
+ */
+ function notifications_get_user_info($tid, $type) {
+   $result = db_query("SELECT nid FROM {content_type_bio} WHERE field_facet_person_value = %d", $tid);
+   $profile_bio = array();
+   while ($row = db_fetch_object($result)) {
+     $profile_bio[] = $row;
+   }
+   $profile_nid = $profile_bio[0]->nid;
+   $result = db_query("SELECT uid FROM {profile_values} WHERE fid=16 AND value = %d", $profile_nid);
+   $profile_values = array();
+   while ($row = db_fetch_object($result)) {
+     $profile_values[] = $row;
+   }
+   if (!empty($profile_values)) {
+     $profile_uid = $profile_values[0]->uid;
+     $profile_first_name = $profile_bio[0]->field_bio_first_name_value;
+     $profile_user = user_load(array('uid' => $profile_uid));
+
+     //Check profile values to see if user has opt'd out of email notifications
+     $profile_notify = array();
+     $result = db_query("SELECT value FROM {profile_values} WHERE fid=21 AND uid = %d", $profile_uid);
+     $profile_values = array();
+     while ($row = db_fetch_object($result)) {
+       $profile_notify[] = $row;
+     }
+     $profile_email_notify = $profile_notify[0]->value;
+     if ($profile_email_notify == 1){
+       //user has opt'd out of email notifications, don't send email
+       $type = 'no_email_notifications';
+     }
+   }
+   else {
+     //return NULL if no bio associated to user
+     $type = 'no_bio';
+   }
+
+   //return different info based on type
+   switch($type) {
+     case 'user':
+       //returns a user object
+       return $profile_user;
+     case 'uid':
+       //returns the uid
+       return $profile_uid;
+     case 'first_name':
+       //returns the first name associated with the user's bio node
+       return $profile_first_name;
+     case 'no_bio':
+       return NULL;
+     case 'no_email_notifications':
+       return NULL;
+   }
+ }
+
+/**
+ * Implementation of hook_mail.
+ * Switch by $key to allow for future implementations of notifications.
+ */
+function notifications_mail($key, &$message, $params) {
+  global $base_url;
+  $language = $message['language'];
+  switch($key) {
+    case 'action_notification_send_email':
+      $node = $params['node'];
+      $comment = $params['object'];
+      $message['subject'] = t('New user comment');
+      $body = 'Hi,<br><br>A user left a new comment on: ' . $node->title . '.<br> Comment text: ' . $comment->comment .
+        '<br>' . t('<a href="@url">Respond to Comment</a>', array('@url' => url($base_url . '/' . $node->path))) .
+        '<br><br>Thank you<br>';
+      $message['body'][] = drupal_wrap_mail($body);
+      $message['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed; delsp=yes';
+    break;
+  }
+}
