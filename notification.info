@@ -1,0 +1,5 @@
+name = "Notifications"
+description = "Site specific module for notifications."
+core = "6.x"
+package = "Site specific"
+dependencies[] = "trigger"
